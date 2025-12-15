@@ -1,5 +1,3 @@
-version: "3.7"
-
 services:
   caddy:
     image: caddy:latest
@@ -30,6 +28,4 @@ services:
       
 volumes:
   caddy_data:
-    external: true
   n8n_data:
-    external: true

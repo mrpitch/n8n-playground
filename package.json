@@ -1,0 +1,32 @@
+{
+  "name": "n8n-playground",
+  "version": "0.1.0",
+  "description": "N8N Playground",
+  "author": "mrpitch@outlook.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/n8n-playground/n8n-playground.git"
+  },
+  "homepage": "https://github.com/n8n-playground/n8n-playground",
+  "bugs": {
+    "url": "https://github.com/n8n-playground/n8n-playground/issues"
+  },
+  "keywords": [
+    "n8n",
+    "playground",
+    "workflow",
+    "automation"
+  ],
+  "private": true,
+  "scripts": {
+    "start": "docker compose up -d",
+    "stop": "docker compose down",
+    "restart": "docker compose down && docker compose up -d",
+    "logs": "docker compose logs -f",
+    "status": "docker compose ps",
+    "cleanup": "docker compose down -v"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

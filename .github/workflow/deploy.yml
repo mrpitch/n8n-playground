@@ -1,0 +1,113 @@
+name: Deploy - Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_only:
+        description: "Deploy without building (use latest images)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted]
+    env:
+      DATA_FOLDER: ${{ vars.DATA_FOLDER }}
+      DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+      SUBDOMAIN: ${{ vars.SUBDOMAIN }}
+      GENERIC_TIMEZONE: ${{ vars.GENERIC_TIMEZONE }}
+      SSL_EMAIL: ${{ vars.SSL_EMAIL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine image tags
+        id: images
+        run: |
+          set -euo pipefail
+          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          echo "next_image=${REGISTRY}/${REPO}-next:latest" >> "$GITHUB_OUTPUT"
+          echo "nginx_image=${REGISTRY}/${REPO}-nginx:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare deployment bundle
+        run: |
+          set -euo pipefail
+          
+          echo "Current directory: $(pwd)"
+          echo "Checking docker directory:"
+          ls -la docker/ || echo "docker/ directory not found!"
+          
+          mkdir -p deploy_bundle
+          
+          # Verify files exist before copying
+          if [ ! -f "docker/docker-compose.yml" ]; then
+            echo "ERROR: docker/docker-compose.yml not found!"
+            exit 1
+          fi
+          
+          cp docker/docker-compose.yml deploy_bundle/
+          
+          # Generate .env from secrets
+          cat > deploy_bundle/.env << EOF
+          
+          DATA_FOLDER=${DATA_FOLDER}
+          DOMAIN_NAME=${DOMAIN_NAME}
+          SUBDOMAIN=${SUBDOMAIN}
+          GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+          SSL_EMAIL=${SSL_EMAIL}
+          EOF
+          
+          # Verify bundle was created
+          echo "Deploy bundle contents:"
+          ls -la deploy_bundle/
+          echo "Deploy bundle size:"
+          du -sh deploy_bundle/
+
+      - name: Copy deployment files to server
+        run: |
+          set -euo pipefail
+          mkdir -p "${REMOTE_PROJECT_PATH}"
+          # Copy all files including hidden ones (like .env)
+          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
+          echo "Files copied to ${REMOTE_PROJECT_PATH}"
+          ls -la "${REMOTE_PROJECT_PATH}"
+
+      - name: Deploy application
+        run: |
+          set -euo pipefail
+          cd "${REMOTE_PROJECT_PATH}"
+          
+          # Fix docker-compose.yml to use .env instead of ../.env
+          # (since docker-compose.yml and .env are now in the same directory)
+          sed -i 's|\.\./\.env|.env|g' docker-compose.yml
+          
+          # Verify .env file exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env file not found in ${REMOTE_PROJECT_PATH}"
+            ls -la
+            exit 1
+          fi
+          
+          export DOMAIN="${DOMAIN:-}"
+          export SSL_EMAIL="${SSL_EMAIL:-}"
+          export DOMAINS="${DOMAINS:-}"
+          
+          echo "🔄 Pulling latest images..."
+          docker compose pull
+          
+          echo "🧹 Removing old containers..."
+          docker compose down --remove-orphans
+          
+          echo "🚀 Starting updated containers..."
+          docker compose up -d
+          
+          echo "✅ Deployment completed successfully"
+          docker ps --format "table {{.Names}}\t{{.Status}}"

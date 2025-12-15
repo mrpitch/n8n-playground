@@ -5,3 +5,6 @@ ToDos:
 - setup hetzner VM
 - use cursor rules to create docs
 - write readme
+
+
+http://localhost:5678/setup
