@@ -6,7 +6,7 @@ This guide covers the recommended production setup for deploying the n8n-playgro
 
 ### Overview
 
-```
+```text
 /home/devops/
 ├── gh-runner/                    # GitHub Actions runner installation
 │   ├── runner.env                # Runner configuration (secrets)
@@ -33,11 +33,189 @@ This guide covers the recommended production setup for deploying the n8n-playgro
 ### Prerequisites
 
 - Ubuntu 20.04+ or Debian 11+ server
-- Root or sudo access
+- Root or sudo access (initially, for setup)
 - SSH access configured
 - Domain name pointing to your server
+- **Hetzner Console access** (or equivalent server console) - **CRITICAL** for recovery if SSH breaks
+- SSH key pair generated on your local machine
 
-### 1. Create Directory Structure
+### 1. Create DevOps User and Harden SSH
+
+> **⚠️ IMPORTANT:** This section should be completed **first**, before any other setup. You'll need root access initially, but we'll disable root SSH login for security.
+
+#### Target State (Best Practice)
+
+✅ SSH login **only** via user `devops`  
+✅ `devops` has `sudo` rights  
+❌ No SSH login as `root`  
+❌ No password login  
+✅ SSH keys only  
+
+#### Step 1: Create User `devops`
+
+Use **Hetzner Console** (or temporary root SSH) to create the user:
+
+```bash
+# As root, create the devops user
+adduser devops
+```
+
+Follow the prompts (password can be temporary - we'll disable password auth anyway).
+
+#### Step 2: Give `devops` Sudo Rights
+
+```bash
+# Add devops to sudo group
+usermod -aG sudo devops
+
+# Verify
+groups devops
+# Should show: devops sudo
+```
+
+#### Step 3: Install SSH Key for `devops`
+
+**On your local machine**, get your public key:
+
+```bash
+# Display your public key (adjust path to your key)
+cat ~/.ssh/id_rsa.pub
+# Or if you have a specific key:
+cat ~/.ssh/id_mrpsrvn8n.pub
+```
+
+**On the server** (as root or via console):
+
+```bash
+# Create .ssh directory
+mkdir -p /home/devops/.ssh
+chmod 700 /home/devops/.ssh
+
+# Add your public key
+nano /home/devops/.ssh/authorized_keys
+# Paste your public key, save and exit
+
+# Set correct permissions
+chmod 600 /home/devops/.ssh/authorized_keys
+chown -R devops:devops /home/devops/.ssh
+```
+
+#### Step 4: Test SSH Login as devops (CRITICAL)
+
+**Before disabling root**, test from your local machine:
+
+```bash
+ssh devops@YOUR_SERVER_IP
+```
+
+Once connected, verify:
+
+```bash
+whoami
+# Should output: devops
+
+sudo whoami
+# Should output: root
+```
+
+**If this fails → STOP and fix before continuing!** Do not proceed until you can SSH as `devops` and use `sudo`.
+
+#### Step 5: Harden SSH (Disable Root + Passwords)
+
+Edit SSH config:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Set/ensure these values:
+
+```text
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AllowUsers devops
+```
+
+(Optional but recommended for extra security):
+
+```text
+MaxAuthTries 3
+LoginGraceTime 30
+```
+
+Save and exit.
+
+#### Step 6: Restart SSH Safely
+
+⚠️ **Do not close your current SSH session yet!**
+
+```bash
+sudo systemctl restart ssh
+# Or on some systems:
+sudo systemctl restart sshd
+```
+
+**Open a new terminal** and test again:
+
+```bash
+ssh devops@YOUR_SERVER_IP
+```
+
+If it works → safe to proceed. If it fails, use Hetzner Console to revert changes.
+
+#### Step 7: (Optional but Recommended) Lock Root Account
+
+Prevents even console password login:
+
+```bash
+sudo passwd -l root
+```
+
+> **Note:** You can always recover via Hetzner Rescue System if needed.
+
+#### Step 8: Update Your Local SSH Config
+
+Add to `~/.ssh/config` on your local machine:
+
+```ssh
+Host your-server-name
+  HostName YOUR_SERVER_IP
+  User devops
+  IdentityFile ~/.ssh/id_rsa
+  # Or if using a specific key:
+  # IdentityFile ~/.ssh/id_mrpsrvn8n
+  IdentitiesOnly yes
+  AddKeysToAgent yes
+  UseKeychain yes
+```
+
+Now connect with:
+
+```bash
+ssh your-server-name
+```
+
+#### Step 9: Hetzner-Specific Safety Net
+
+Ensure you have access to:
+
+- **Hetzner Console** - For emergency access if SSH breaks
+- **Rescue System** - For recovery scenarios
+- **Snapshots / Backups** - For rollback capability
+
+#### Optional Extra Hardening (Recommended Later)
+
+| Feature                        | Command/Config                       |
+| ------------------------------ | ------------------------------------ |
+| Change SSH port                | Edit `Port` in `/etc/ssh/sshd_config` |
+| Fail2ban                       | `sudo apt install fail2ban`          |
+| UFW firewall                   | See "Example UFW Setup" section below |
+| MFA (pam_google_authenticator) | Advanced - requires additional setup  |
+
+**Summary:** Root exists only for recovery — never for daily SSH. All operations should use the `devops` user.
+
+### 2. Create Directory Structure
 
 ```bash
 # SSH into your server
@@ -53,7 +231,7 @@ chmod 755 ~/gh-runner ~/n8n-playground
 
 **Note:** All directories are created in your home directory, so you naturally own them. No sudo required!
 
-### Configure Minimal Sudo Access
+### 3. Configure Minimal Sudo Access
 
 The devops user needs sudo for two purposes:
 1. **Systemd operations** - Managing the runner service
@@ -122,7 +300,7 @@ sudo apt-get update
 
 **Security Note:** These permissions follow the principle of least privilege - only specific commands are allowed, not full root access. The devops user cannot run arbitrary sudo commands.
 
-### 2. Configure GitHub Secrets
+### 4. Configure GitHub Secrets
 
 In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add:
 
@@ -228,15 +406,15 @@ The workflow will:
 
 ### Security Best Practices
 
-1. **Minimal sudo**: Only needed for systemd operations (runner service management), not for any file operations or deployments
-2. **Single user ownership**: One user owns everything, simplifying permissions and reducing complexity
-3. **Protect secrets**: All `.env` files should be `600` (owner read/write only)
-3. **Docker socket**: The runner has access to Docker socket for building images
-4. **Firewall**: Configure UFW or iptables to only allow ports 22 (SSH), 80 (HTTP), 443 (HTTPS)
-5. **SSH hardening**: 
-   - Disable password authentication
-   - Use key-based authentication only
+1. **SSH hardening**: See "Create DevOps User and Harden SSH" section above for complete setup:
+   - SSH login only via `devops` user (root SSH disabled)
+   - Key-based authentication only (password auth disabled)
    - Consider changing SSH port from default 22
+2. **Minimal sudo**: Only needed for systemd operations (runner service management), not for any file operations or deployments
+3. **Single user ownership**: One user owns everything, simplifying permissions and reducing complexity
+4. **Protect secrets**: All `.env` files should be `600` (owner read/write only)
+5. **Docker socket**: The runner has access to Docker socket for building images
+6. **Firewall**: Configure UFW or iptables to only allow ports 22 (SSH), 80 (HTTP), 443 (HTTPS)
 
 ### Example UFW Setup
 
@@ -539,6 +717,7 @@ If you prefer a different location than `/home/devops`, consider:
 ## Summary
 
 This production setup provides:
+- ✅ **Hardened SSH security** - root SSH disabled, key-based auth only, devops user with sudo
 - ✅ Everything in user's home directory for maximum simplicity
 - ✅ No sudo needed for deployments or file operations
 - ✅ Minimal sudo requirements (only for runner's systemd service)
@@ -568,4 +747,3 @@ The deployment workflow is simplified because:
 - **Automatic HTTPS**: Caddy provisions and renews SSL certificates automatically
 
 For questions or issues, check the GitHub repository or open an issue.
-
