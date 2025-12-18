@@ -49,7 +49,7 @@ n8n-playground/
 │       └── deploy.yml          # GitHub Actions deployment workflow
 │
 ├── example.env                  # Environment variables template
-├── package.json                # npm scripts for easy management
+├── package.json                # pnpm scripts for easy management
 └── README.md                   # This file
 ```
 
@@ -83,12 +83,20 @@ n8n-playground/
    N8N_ENCRYPTION_KEY=local-dev-key-change-in-production
    ```
 
-4. **Start services**:
+4. **Install pnpm** (if not already installed):
    ```bash
-   npm start
+   npm install -g pnpm
+   # or using corepack (Node.js 16.10+)
+   corepack enable
+   corepack prepare pnpm@latest --activate
    ```
 
-5. **Access n8n**: http://localhost:5678
+5. **Start services**:
+   ```bash
+   pnpm start
+   ```
+
+6. **Access n8n**: http://localhost:5678
 
 ### Production Deployment
 
@@ -110,29 +118,29 @@ For detailed setup instructions, see:
 
 ```bash
 # Start services
-npm start
+pnpm start
 
 # Stop services
-npm stop
+pnpm stop
 
 # Restart services
-npm run restart
+pnpm restart
 
 # View logs
-npm run logs              # All services
-npm run logs:n8n         # n8n only
-npm run logs:postgres    # PostgreSQL only
-npm run logs:caddy       # Caddy only
+pnpm logs              # All services
+pnpm logs:n8n         # n8n only
+pnpm logs:postgres    # PostgreSQL only
+pnpm logs:caddy       # Caddy only
 
 # Check status
-npm run status
+pnpm status
 
 # Clean up (removes volumes - WARNING: deletes data!)
-npm run cleanup
+pnpm cleanup
 
 # Access containers
-npm run shell:n8n        # Shell in n8n container
-npm run shell:postgres   # PostgreSQL shell
+pnpm shell:n8n        # Shell in n8n container
+pnpm shell:postgres   # PostgreSQL shell
 ```
 
 ## 🔧 Configuration
@@ -229,7 +237,7 @@ Guide for local development including:
 - Environment configuration
 - Switching between local/production modes
 - Troubleshooting local issues
-- Available npm commands
+- Available pnpm commands
 
 ## 🏗️ Architecture
 
@@ -310,7 +318,7 @@ For AI agent memory or other purposes:
 
 ```bash
 # Connect to PostgreSQL
-npm run shell:postgres
+pnpm shell:postgres
 
 # Create database
 CREATE DATABASE ai_agent_memory;
@@ -332,14 +340,14 @@ See [Server Setup Guide - Backup Strategy](docs/server-setup.md#backup-strategy)
 - Check password matches `.env` file
 
 **Can't access localhost:5678:**
-- Verify containers are running: `npm run status`
-- Check n8n logs: `npm run logs:n8n`
+- Verify containers are running: `pnpm status`
+- Check n8n logs: `pnpm logs:n8n`
 - Ensure `.env` has local development settings
 
 **SSL certificate issues:**
 - Verify DNS points to your server
 - Check ports 80/443 are open
-- Review Caddy logs: `npm run logs:caddy`
+- Review Caddy logs: `pnpm logs:caddy`
 
 See **[Troubleshooting Guide](docker/TROUBLESHOOTING.md)** for detailed solutions.
 

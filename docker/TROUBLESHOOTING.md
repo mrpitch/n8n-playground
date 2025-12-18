@@ -10,13 +10,13 @@ This will delete all PostgreSQL data, so only use this if you don't have importa
 
 ```bash
 # Stop all containers
-npm stop
+pnpm stop
 
 # Remove the PostgreSQL volume
 docker volume rm docker_postgres_data
 
 # Start again - the init script will run
-npm start
+pnpm start
 ```
 
 ### Solution 2: Manually Create Database (If volume already exists)
@@ -25,7 +25,7 @@ If you already have data in PostgreSQL, manually create the database and user:
 
 ```bash
 # Connect to PostgreSQL container
-npm run shell:postgres
+pnpm shell:postgres
 
 # Or manually:
 docker compose -f docker/docker-compose.yml exec postgres psql -U postgres
@@ -43,7 +43,7 @@ ALTER DATABASE n8n OWNER TO n8n;
 
 Then restart n8n:
 ```bash
-npm restart
+pnpm restart
 ```
 
 ### Solution 3: Check Your .env File
@@ -64,7 +64,7 @@ The permissions warning is fixed by setting `N8N_ENFORCE_SETTINGS_FILE_PERMISSIO
 
 If you still see the warning, restart the container:
 ```bash
-npm restart
+pnpm restart
 ```
 
 ## Container Restart Loop
@@ -73,7 +73,7 @@ If n8n keeps restarting:
 
 1. **Check logs:**
    ```bash
-   npm run logs:n8n
+   pnpm logs:n8n
    ```
 
 2. **Common causes:**
@@ -83,13 +83,13 @@ If n8n keeps restarting:
 
 3. **Verify PostgreSQL is running:**
    ```bash
-   npm run status
+   pnpm status
    # Should show postgres as "healthy"
    ```
 
 4. **Check PostgreSQL logs:**
    ```bash
-   npm run logs:postgres
+   pnpm logs:postgres
    ```
 
 ## Verify Database Creation
@@ -98,7 +98,7 @@ To verify the database and user were created:
 
 ```bash
 # Connect to PostgreSQL
-npm run shell:postgres
+pnpm shell:postgres
 
 # List databases
 \l
@@ -120,12 +120,12 @@ If you want to start completely fresh:
 
 ```bash
 # Stop everything
-npm stop
+pnpm stop
 
 # Remove all volumes (WARNING: This deletes all data!)
-npm run cleanup
+pnpm cleanup
 
 # Start fresh
-npm start
+pnpm start
 ```
 

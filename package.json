@@ -4,6 +4,7 @@
   "description": "N8N Playground",
   "author": "mrpitch@outlook.com",
   "license": "MIT",
+  "packageManager": "pnpm@9.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/n8n-playground/n8n-playground.git"

@@ -31,15 +31,23 @@ N8N_USER_MANAGEMENT_DISABLED=false
 GENERIC_TIMEZONE=Europe/Berlin
 ```
 
-2. **Start the services**:
+2. **Install pnpm** (if not already installed):
+   ```bash
+   npm install -g pnpm
+   # or using corepack (Node.js 16.10+)
+   corepack enable
+   corepack prepare pnpm@latest --activate
+   ```
+
+3. **Start the services**:
 
 ```bash
-npm start
+pnpm start
 # or
 cd docker && docker compose --env-file ../.env up -d
 ```
 
-3. **Access n8n**: http://localhost:5678
+4. **Access n8n**: http://localhost:5678
 
 ## Production Setup (Server)
 
@@ -123,12 +131,12 @@ Same logic applies to:
 
 1. Check containers are running:
    ```bash
-   npm run status
+   pnpm status
    ```
 
 2. Check n8n logs:
    ```bash
-   npm run logs:n8n
+   pnpm logs:n8n
    ```
 
 3. Verify `.env` has local settings:
@@ -139,7 +147,7 @@ Same logic applies to:
 
 4. Restart containers:
    ```bash
-   npm run restart
+   pnpm restart
    ```
 
 ### Switching between local and production
@@ -151,22 +159,22 @@ Simply update your `.env` file:
 
 Then restart:
 ```bash
-npm run restart
+pnpm restart
 ```
 
 ## Available Commands
 
 ```bash
-npm start              # Start all services
-npm stop               # Stop all services
-npm run restart        # Restart all services
-npm run logs           # View all logs
-npm run logs:n8n       # View n8n logs only
-npm run logs:postgres  # View PostgreSQL logs only
-npm run logs:caddy     # View Caddy logs only
-npm run status         # Check container status
-npm run cleanup        # Remove everything (including volumes)
-npm run shell:n8n      # Open shell in n8n container
-npm run shell:postgres # Open PostgreSQL shell
+pnpm start              # Start all services
+pnpm stop               # Stop all services
+pnpm restart            # Restart all services
+pnpm logs               # View all logs
+pnpm logs:n8n           # View n8n logs only
+pnpm logs:postgres      # View PostgreSQL logs only
+pnpm logs:caddy         # View Caddy logs only
+pnpm status             # Check container status
+pnpm cleanup            # Remove everything (including volumes)
+pnpm shell:n8n          # Open shell in n8n container
+pnpm shell:postgres     # Open PostgreSQL shell
 ```
 
