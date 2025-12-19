@@ -125,7 +125,6 @@ jobs:
           echo ""
           echo "Verifying Caddyfile at Docker mount path:"
           ls -la "${CADDYFILE_PATH}" || echo "ERROR: Caddyfile not at expected path!"
-          file "${CADDYFILE_PATH}" || echo "ERROR: Cannot determine file type!"
           echo ""
           echo "Caddyfile contents:"
           cat "${CADDYFILE_PATH}"
@@ -179,14 +178,13 @@ jobs:
           # Verify it's a regular file
           if [ ! -f "${CADDYFILE_PATH}" ]; then
             echo "❌ ERROR: ${CADDYFILE_PATH} exists but is not a regular file!"
-            file "${CADDYFILE_PATH}"
+            ls -la "${CADDYFILE_PATH}"
             exit 1
           fi
           
           echo "✅ Caddyfile verified: regular file at ${CADDYFILE_PATH}"
           echo "File details:"
           ls -la "${CADDYFILE_PATH}"
-          file "${CADDYFILE_PATH}"
           echo ""
           echo "Caddyfile contents:"
           cat "${CADDYFILE_PATH}"
