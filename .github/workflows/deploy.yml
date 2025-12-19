@@ -123,6 +123,10 @@ jobs:
             exit 1
           fi
 
+          echo "Current directory: $(pwd)"
+          echo "Contents:"
+          ls -la
+
           echo "🔄 Pulling images..."
           docker compose pull
 
