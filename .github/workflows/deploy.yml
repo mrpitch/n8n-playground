@@ -18,6 +18,13 @@ jobs:
       GENERIC_TIMEZONE: ${{ vars.GENERIC_TIMEZONE }}
       SSL_EMAIL: ${{ vars.SSL_EMAIL }}
       REMOTE_PROJECT_PATH: ${{ vars.REMOTE_PROJECT_PATH }}
+      POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+      POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+      POSTGRES_N8N_DB: ${{ vars.POSTGRES_N8N_DB }}
+      POSTGRES_N8N_USER: ${{ vars.POSTGRES_N8N_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_N8N_PASSWORD: ${{ secrets.POSTGRES_N8N_PASSWORD }}
+      N8N_ENCRYPTION_KEY: ${{ secrets.N8N_ENCRYPTION_KEY }}
 
     steps:
       # ------------------------------------------------------------
@@ -44,6 +51,10 @@ jobs:
             docker/caddy_config/Caddyfile \
             > deploy_bundle/caddy_config/Caddyfile
 
+          # PostgreSQL init scripts
+          mkdir -p deploy_bundle/postgres-init
+          cp docker/postgres-init/* deploy_bundle/postgres-init/
+
           # .env file for docker compose
           cat > deploy_bundle/.env <<EOF
           DATA_FOLDER=${DATA_FOLDER}
@@ -51,6 +62,13 @@ jobs:
           SUBDOMAIN=${SUBDOMAIN}
           GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
           SSL_EMAIL=${SSL_EMAIL}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          POSTGRES_N8N_DB=${POSTGRES_N8N_DB}
+          POSTGRES_N8N_USER=${POSTGRES_N8N_USER}
+          POSTGRES_N8N_PASSWORD=${POSTGRES_N8N_PASSWORD}
+          N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
           EOF
 
           echo "📦 Deployment bundle prepared:"
@@ -72,11 +90,16 @@ jobs:
           # Runtime data paths (mounted into containers)
           mkdir -p "${DATA_FOLDER}/caddy_config"
           mkdir -p "${DATA_FOLDER}/local_files"
+          mkdir -p "${DATA_FOLDER}/postgres-init"
 
           # Copy Caddyfile to DATA_FOLDER (directory mount)
           cp deploy_bundle/caddy_config/Caddyfile \
              "${DATA_FOLDER}/caddy_config/Caddyfile"
           chmod 644 "${DATA_FOLDER}/caddy_config/Caddyfile"
+
+          # Copy PostgreSQL init scripts
+          cp -r deploy_bundle/postgres-init/* "${DATA_FOLDER}/postgres-init/"
+          chmod +x "${DATA_FOLDER}/postgres-init/"*.sh 2>/dev/null || true
 
           echo "📁 Runtime paths:"
           ls -la "${DATA_FOLDER}/caddy_config"
