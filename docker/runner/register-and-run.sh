@@ -30,9 +30,13 @@ while true; do
   # pull latest runner
   docker pull "${IMAGE}" || true
 
+  DEVOPS_UID=$(id -u devops)
+  DEVOPS_GID=$(id -g devops)
+
   # Note: bind docker.sock to allow builds/deploys on host daemon
   docker run --rm \
     --name "${RUNNER_NAME}" \
+    --user "${DEVOPS_UID}:${DEVOPS_GID}" \
     -e REPO_URL="https://github.com/${REPO}" \
     -e RUNNER_NAME="${RUNNER_NAME}" \
     -e RUNNER_LABELS="${RUNNER_LABELS}" \
