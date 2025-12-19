@@ -101,8 +101,8 @@ jobs:
           mkdir -p "${REMOTE_PROJECT_PATH}"
           cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
 
-          # Change ownership to devops user (so devops can access files)
-          chown -R devops:devops "${REMOTE_PROJECT_PATH}"
+          # Change ownership to devops user using numeric IDs
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${REMOTE_PROJECT_PATH}"
 
           # Runtime data paths (mounted into containers)
           mkdir -p "${DATA_FOLDER}/caddy_config"
@@ -113,17 +113,17 @@ jobs:
           cp deploy_bundle/caddy_config/Caddyfile \
              "${DATA_FOLDER}/caddy_config/Caddyfile"
           chmod 644 "${DATA_FOLDER}/caddy_config/Caddyfile"
-          chown devops:devops "${DATA_FOLDER}/caddy_config/Caddyfile"
+          chown "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/caddy_config/Caddyfile"
 
           # Copy PostgreSQL init scripts
           cp -r deploy_bundle/postgres-init/* "${DATA_FOLDER}/postgres-init/"
           chmod +x "${DATA_FOLDER}/postgres-init/"*.sh 2>/dev/null || true
-          chown -R devops:devops "${DATA_FOLDER}/postgres-init"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/postgres-init"
 
           # Ensure DATA_FOLDER directories are owned by devops
-          chown -R devops:devops "${DATA_FOLDER}/caddy_config"
-          chown -R devops:devops "${DATA_FOLDER}/local_files"
-          chown -R devops:devops "${DATA_FOLDER}/postgres-init"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/caddy_config"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/local_files"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/postgres-init"
 
           echo "📁 Runtime paths:"
           ls -la "${DATA_FOLDER}/caddy_config"
