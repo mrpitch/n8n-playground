@@ -12,6 +12,9 @@ fi
 : "${RUNNER_LABELS:=self-hosted,hetzner,docker}"
 : "${RUNNER_REG_PAT:?RUNNER_REG_PAT not set}"
 
+# Get REMOTE_PROJECT_PATH from env or use default
+REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH:-/home/devops/n8n-playground}"
+
 API="https://api.github.com/repos/${REPO}/actions/runners/registration-token"
 IMAGE="myoung34/github-runner:latest"   # coommunity maintained https://github.com/myoung34/docker-github-actions-runner
 WORKDIR="/runner/_work"
@@ -32,6 +35,7 @@ while true; do
 
 
   # Note: bind docker.sock to allow builds/deploys on host daemon
+  # Also mount project directory so files persist on host filesystem
   docker run --rm \
     --name "${RUNNER_NAME}" \
     -e REPO_URL="https://github.com/${REPO}" \
@@ -42,6 +46,7 @@ while true; do
     -e EPHEMERAL="true" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v gh-runner-data:/runner \
+    -v "${REMOTE_PROJECT_PATH}:${REMOTE_PROJECT_PATH}" \
     "${IMAGE}"
 
   echo "[runner] Job finished; restarting in 10s…"
