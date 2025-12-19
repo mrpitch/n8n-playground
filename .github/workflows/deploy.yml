@@ -56,6 +56,21 @@ jobs:
           
           cp docker/docker-compose.yml deploy_bundle/
           
+          # Copy caddy_config directory and process Caddyfile
+          if [ -d "docker/caddy_config" ]; then
+            mkdir -p deploy_bundle/caddy_config
+            if [ -f "docker/caddy_config/Caddyfile" ]; then
+              # Process Caddyfile: replace placeholder with actual domain
+              sed "s/n8n\.<domain>\.<suffix>/${SUBDOMAIN}.${DOMAIN_NAME}/g" \
+                docker/caddy_config/Caddyfile > deploy_bundle/caddy_config/Caddyfile
+              echo "✅ Processed Caddyfile with domain: ${SUBDOMAIN}.${DOMAIN_NAME}"
+            else
+              echo "⚠️  WARNING: docker/caddy_config/Caddyfile not found!"
+            fi
+          else
+            echo "⚠️  WARNING: docker/caddy_config directory not found!"
+          fi
+          
           # Generate .env from secrets
           cat > deploy_bundle/.env << EOF
           
@@ -69,17 +84,36 @@ jobs:
           # Verify bundle was created
           echo "Deploy bundle contents:"
           ls -la deploy_bundle/
+          if [ -d "deploy_bundle/caddy_config" ]; then
+            echo "Caddyfile contents:"
+            cat deploy_bundle/caddy_config/Caddyfile
+          fi
           echo "Deploy bundle size:"
           du -sh deploy_bundle/
 
       - name: Copy deployment files to server
         run: |
           set -euo pipefail
+          # Create directory structure
           mkdir -p "${REMOTE_PROJECT_PATH}"
+          mkdir -p "${DATA_FOLDER}/caddy_config"
+          mkdir -p "${DATA_FOLDER}/local_files"
+          
+          # Remove any existing Caddyfile if it's a directory (prevents mount errors)
+          CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "⚠️  Removing existing Caddyfile directory (should be a file)"
+            rm -rf "${CADDYFILE_PATH}"
+          fi
+          
           # Copy all files including hidden ones (like .env)
           cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
           echo "Files copied to ${REMOTE_PROJECT_PATH}"
           ls -la "${REMOTE_PROJECT_PATH}"
+          if [ -d "${REMOTE_PROJECT_PATH}/caddy_config" ]; then
+            echo "Caddyfile on server:"
+            cat "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" || echo "Caddyfile not found"
+          fi
 
       - name: Deploy application
         run: |
@@ -96,6 +130,22 @@ jobs:
             ls -la
             exit 1
           fi
+          
+          # Verify Caddyfile exists and is a file (not a directory)
+          CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "ERROR: Caddyfile not found at ${CADDYFILE_PATH}"
+            echo "Checking directory structure:"
+            ls -la "${DATA_FOLDER}/" || echo "DATA_FOLDER does not exist"
+            ls -la "${DATA_FOLDER}/caddy_config/" || echo "caddy_config directory does not exist"
+            if [ -d "${CADDYFILE_PATH}" ]; then
+              echo "ERROR: ${CADDYFILE_PATH} exists but is a directory, not a file!"
+            fi
+            exit 1
+          fi
+          echo "✅ Caddyfile verified at ${CADDYFILE_PATH}"
+          echo "Caddyfile contents:"
+          cat "${CADDYFILE_PATH}"
           
           export DOMAIN="${DOMAIN:-}"
           export SSL_EMAIL="${SSL_EMAIL:-}"
