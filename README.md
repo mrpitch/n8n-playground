@@ -42,7 +42,12 @@ n8n-playground/
 ├── docs/                        # Comprehensive documentation
 │   ├── server-setup.md         # Production server setup guide
 │   ├── local-setup.md          # Local development guide
+│   ├── setup-guides.md         # Complete setup guide
 │   └── cursor-rules-guide.md   # Cursor IDE rules guide
+│
+├── scripts/                     # Setup automation scripts
+│   ├── setup-github.sh         # GitHub configuration script
+│   └── setup-server.sh         # Server configuration script
 │
 ├── .github/
 │   └── workflow/
@@ -100,19 +105,67 @@ n8n-playground/
 
 ### Production Deployment
 
-1. **Set up your Hetzner server** - Follow [Server Setup Guide](docs/server-setup.md)
+#### Prerequisites
 
-2. **Configure GitHub Secrets/Variables** - See [Server Setup Guide - GitHub Secrets](docs/server-setup.md#4-configure-github-secrets)
+Before deploying, ensure you have:
 
-3. **Deploy via GitHub Actions**:
-   - Push to `main` branch, or
-   - Go to Actions → Deploy - Production → Run workflow
+1. **GitHub CLI** installed and authenticated:
+   ```bash
+   brew install gh  # macOS
+   gh auth login
+   ```
 
-4. **Access n8n**: https://n8n.your-domain.com
+2. **SSH access** to your Hetzner server:
+   - SSH key configured
+   - Server IP/hostname
+   - Username (typically `devops`)
 
-For detailed setup instructions, see:
-- **[Local Development Guide](docs/local-setup.md)** - Complete local setup
-- **[Server Setup Guide](docs/server-setup.md)** - Production deployment
+3. **Domain name** pointing to your server:
+   - DNS A record: `n8n.your-domain.com` → Server IP
+
+#### Automated Setup (Recommended)
+
+1. **Configure GitHub** (automated):
+   ```bash
+   chmod +x scripts/setup-github.sh
+   ./scripts/setup-github.sh
+   ```
+   This script will:
+   - Prompt for all required information
+   - Generate secure passwords automatically
+   - Set GitHub Variables and Secrets
+   - Display a summary with passwords to save
+
+2. **Configure Server** (automated):
+   ```bash
+   chmod +x scripts/setup-server.sh
+   ./scripts/setup-server.sh
+   ```
+   This script will:
+   - Connect to your server via SSH
+   - Install required packages (Docker, jq, curl)
+   - Create directory structure
+   - Configure firewall (UFW)
+   - Set up Docker permissions
+
+3. **Deploy GitHub Actions Runner**:
+   - Go to **Actions → Deploy - Runner** workflow
+   - Click **Run workflow** → Select `start` → **Run workflow**
+   - Verify runner appears in **Settings → Actions → Runners**
+
+4. **Deploy Application**:
+   - Go to **Actions → Deploy - Production** workflow
+   - Click **Run workflow** → **Run workflow**
+   - Check workflow logs for success
+
+5. **Access n8n**: https://n8n.your-domain.com
+
+#### Manual Setup
+
+For manual setup instructions, see:
+- **[Complete Setup Guide](docs/setup-guides.md)** - Step-by-step manual setup
+- **[Server Setup Guide](docs/server-setup.md)** - Detailed server configuration
+- **[Local Development Guide](docs/local-setup.md)** - Local development setup
 
 ## 🛠️ Available Commands
 
@@ -216,12 +269,22 @@ See [Server Setup Guide - Security](docs/server-setup.md#security-best-practices
 ## 📚 Documentation
 
 ### Quick References
+- **[Complete Setup Guide](docs/setup-guides.md)** - Step-by-step setup for GitHub and server
 - **[Local Setup Guide](docs/local-setup.md)** - Local development setup and troubleshooting
 - **[Server Setup Guide](docs/server-setup.md)** - Complete production deployment guide
 - **[Docker README](docker/README.md)** - Docker-specific documentation
 - **[Troubleshooting](docker/TROUBLESHOOTING.md)** - Common issues and solutions
 
 ### Detailed Guides
+
+#### [Complete Setup Guide](docs/setup-guides.md)
+Comprehensive guide covering:
+- Prerequisites and requirements
+- GitHub repository configuration (automated & manual)
+- Server setup (automated & manual)
+- Deployment steps
+- Troubleshooting common issues
+- Verification checklist
 
 #### [Server Setup Guide](docs/server-setup.md)
 Complete guide for production deployment including:
@@ -279,9 +342,96 @@ Guide for local development including:
 
 ## 🔄 Deployment
 
+### Complete Setup Process
+
+The deployment process consists of four main steps:
+
+#### Step 1: GitHub Repository Configuration
+
+Configure GitHub Variables and Secrets. You can use the automated script or set them manually:
+
+**Automated (Recommended):**
+```bash
+./scripts/setup-github.sh
+```
+
+**Manual Setup:**
+Go to your repository → **Settings → Secrets and variables → Actions**
+
+**Required Variables:**
+- `DATA_FOLDER` - Base path (`/home/devops/n8n-playground`)
+- `DOMAIN_NAME` - Your domain (`mrpitch.rocks`)
+- `SUBDOMAIN` - Subdomain (`n8n`)
+- `GENERIC_TIMEZONE` - Timezone (`Europe/Berlin`)
+- `SSL_EMAIL` - Email for SSL (`mrpitch@outlook.com`)
+- `REMOTE_RUNNER_PATH` - Runner path (`/home/devops/gh-runner`)
+- `REMOTE_PROJECT_PATH` - Project path (`/home/devops/n8n-playground`)
+- `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_N8N_DB`, `POSTGRES_N8N_USER`
+- `RUNNER_REPO`, `RUNNER_LABELS`
+- `N8N_BASIC_AUTH_ACTIVE`, `N8N_USER_MANAGEMENT_DISABLED`
+
+**Required Secrets:**
+- `POSTGRES_PASSWORD` - Generate with: `openssl rand -base64 32`
+- `POSTGRES_N8N_PASSWORD` - Generate with: `openssl rand -base64 32`
+- `N8N_ENCRYPTION_KEY` - Generate with: `openssl rand -base64 32`
+- `RUNNER_REG_PAT` - GitHub Personal Access Token
+- `RUNNER_NAME_SECRET` - Unique runner name
+
+See [Complete Setup Guide](docs/setup-guides.md#step-1-github-repository-setup) for detailed instructions.
+
+#### Step 2: Server Configuration
+
+Set up your Hetzner/Ubuntu server:
+
+**Automated (Recommended):**
+```bash
+./scripts/setup-server.sh
+```
+
+**Manual Setup:**
+```bash
+# SSH into server
+ssh devops@your-server-ip
+
+# Install packages
+sudo apt-get update
+sudo apt-get install -y curl jq docker.io docker-compose-plugin
+
+# Create directories
+mkdir -p ~/n8n-playground/{caddy_config,postgres-init,local_files}
+mkdir -p ~/gh-runner
+
+# Configure firewall
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+
+# Add user to docker group
+sudo usermod -aG docker $USER
+# Logout and login again
+```
+
+See [Complete Setup Guide](docs/setup-guides.md#step-2-server-setup) for detailed instructions.
+
+#### Step 3: Deploy GitHub Actions Runner
+
+1. Go to **Actions → Deploy - Runner** workflow
+2. Click **Run workflow** → Select `start` → **Run workflow**
+3. Verify runner appears in **Settings → Actions → Runners** with "Idle" status
+
+#### Step 4: Deploy Application
+
+1. Go to **Actions → Deploy - Production** workflow
+2. Click **Run workflow** → **Run workflow**
+3. Check workflow logs for success
+4. Access: `https://n8n.your-domain.com`
+
 ### Automated Deployment (GitHub Actions)
 
-The project includes a GitHub Actions workflow that:
+The deployment workflow automatically:
 
 1. Checks out the repository
 2. Prepares deployment bundle (docker-compose.yml, Caddyfile, etc.)
@@ -291,7 +441,7 @@ The project includes a GitHub Actions workflow that:
 
 **Requirements:**
 - Self-hosted GitHub Actions runner on your server
-- GitHub Secrets/Variables configured (see [Server Setup Guide](docs/server-setup.md#4-configure-github-secrets))
+- GitHub Secrets/Variables configured (see Step 1 above)
 
 ### Manual Deployment
 
@@ -302,6 +452,20 @@ git pull
 docker compose pull
 docker compose up -d
 ```
+
+### Verification Checklist
+
+After deployment, verify:
+
+- [ ] GitHub Variables set (14 variables)
+- [ ] GitHub Secrets set (5 secrets)
+- [ ] Server packages installed (Docker, jq, curl)
+- [ ] Server directories created
+- [ ] Firewall configured (ports 22, 80, 443)
+- [ ] GitHub Actions runner deployed and online
+- [ ] Application deployed successfully
+- [ ] SSL certificate issued (check Caddy logs)
+- [ ] n8n accessible at `https://n8n.your-domain.com`
 
 ## 🗄️ Database Management
 
@@ -349,7 +513,23 @@ See [Server Setup Guide - Backup Strategy](docs/server-setup.md#backup-strategy)
 - Check ports 80/443 are open
 - Review Caddy logs: `pnpm logs:caddy`
 
-See **[Troubleshooting Guide](docker/TROUBLESHOOTING.md)** for detailed solutions.
+**GitHub setup issues:**
+- Can't authenticate: Run `gh auth login`
+- Secrets not set: Verify admin access and exact secret names (case-sensitive)
+- See [Complete Setup Guide - Troubleshooting](docs/setup-guides.md#troubleshooting)
+
+**Server setup issues:**
+- Can't connect via SSH: Verify SSH key is added (`ssh-copy-id`)
+- Docker permission denied: Add user to docker group and logout/login
+- Firewall blocking: Check UFW status and allow required ports
+- See [Complete Setup Guide - Troubleshooting](docs/setup-guides.md#troubleshooting)
+
+**Deployment issues:**
+- Runner not appearing: Check workflow logs and `RUNNER_REG_PAT` secret
+- Application not deploying: Verify all GitHub Variables are set
+- Check server logs: `cd ~/n8n-playground && docker compose ps`
+
+See **[Troubleshooting Guide](docker/TROUBLESHOOTING.md)** and **[Complete Setup Guide](docs/setup-guides.md#troubleshooting)** for detailed solutions.
 
 ## 🔐 Security Best Practices
 
