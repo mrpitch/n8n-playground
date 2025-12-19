@@ -25,6 +25,7 @@ jobs:
       SUBDOMAIN: ${{ vars.SUBDOMAIN }}
       GENERIC_TIMEZONE: ${{ vars.GENERIC_TIMEZONE }}
       SSL_EMAIL: ${{ vars.SSL_EMAIL }}
+      REMOTE_PROJECT_PATH: ${{ vars.REMOTE_PROJECT_PATH }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
