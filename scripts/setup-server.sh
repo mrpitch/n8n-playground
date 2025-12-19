@@ -177,6 +177,28 @@ else
     cleanup_ssh_connection
     exit 1
 fi
+
+# Check if passwordless sudo is configured (when not connecting as root)
+if [ "$SSH_USER" != "root" ]; then
+    echo "🔍 Checking sudo configuration..."
+    if ssh $SSH_OPTS -n "$SSH_USER@$SERVER_HOST" 'sudo -n true' < /dev/null 2>/dev/null; then
+        echo "✅ Passwordless sudo is configured"
+    else
+        echo "⚠️  WARNING: Passwordless sudo is not configured for $SSH_USER"
+        echo "   The script requires passwordless sudo to run commands."
+        echo "   Please run this script as root first to configure the server,"
+        echo "   or configure passwordless sudo manually:"
+        echo "   echo '$SSH_USER ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/$SSH_USER"
+        echo ""
+        read -p "Continue anyway? (y/n): " CONTINUE_SUDO
+        CONTINUE_SUDO=$(echo "$CONTINUE_SUDO" | tr '[:upper:]' '[:lower:]' | cut -c1)
+        if [ "$CONTINUE_SUDO" != "y" ]; then
+            echo "Aborted. Please configure passwordless sudo first."
+            cleanup_ssh_connection
+            exit 1
+        fi
+    fi
+fi
 echo ""
 
 echo "📦 Installing required packages..."
@@ -209,6 +231,12 @@ if [ "$SSH_USER" = "root" ]; then
     run_remote "id -u devops &>/dev/null || sudo adduser --disabled-password --gecos '' devops"
     run_remote "sudo usermod -aG sudo devops"
     
+    # Configure passwordless sudo for devops user (required for automation)
+    echo "🔐 Configuring passwordless sudo for devops user..."
+    run_remote "echo 'devops ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/devops > /dev/null"
+    run_remote "sudo chmod 0440 /etc/sudoers.d/devops"
+    echo "✅ Passwordless sudo configured for devops user"
+    
     # Copy SSH key to devops user
     echo "🔑 Setting up SSH key for devops user..."
     PUBLIC_KEY_FILE="${SSH_KEY}.pub"
@@ -225,10 +253,49 @@ if [ "$SSH_USER" = "root" ]; then
         echo "✅ SSH key copied to devops user"
     fi
     
+    # Generate CI/CD SSH key (no passphrase, dedicated for GitHub Actions)
+    echo ""
+    echo "🔑 Generating CI/CD SSH key for GitHub Actions..."
+    echo "   This key will be used by GitHub Actions workflows (no passphrase)"
+    
+    # Generate key on the server as devops user (skip if already exists)
+    run_remote "sudo -u devops test -f /home/devops/.ssh/id_cicd || sudo -u devops ssh-keygen -t ed25519 -f /home/devops/.ssh/id_cicd -N '' -C 'github-actions-cicd-$(date +%Y%m%d)' -q"
+    
+    # Get the CI/CD public key and add it to authorized_keys (if not already there)
+    CICD_PUBLIC_KEY=$(run_remote "sudo cat /home/devops/.ssh/id_cicd.pub")
+    if ! run_remote "sudo grep -q 'github-actions-cicd' /home/devops/.ssh/authorized_keys 2>/dev/null"; then
+        run_remote "echo '$CICD_PUBLIC_KEY' | sudo tee -a /home/devops/.ssh/authorized_keys > /dev/null"
+        echo "✅ CI/CD public key added to authorized_keys"
+    else
+        echo "✅ CI/CD public key already in authorized_keys"
+    fi
+    
+    # Get the private key to display
+    CICD_PRIVATE_KEY=$(run_remote "sudo cat /home/devops/.ssh/id_cicd")
+    
+    echo "✅ CI/CD SSH key generated"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚠️  IMPORTANT: Add this private key to GitHub Secrets as SSH_KEY:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "$CICD_PRIVATE_KEY"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    # Save to local file for convenience
+    CICD_KEY_FILE="$HOME/.ssh/${SERVER_HOST//[^a-zA-Z0-9]/_}_cicd_key"
+    echo "$CICD_PRIVATE_KEY" > "$CICD_KEY_FILE"
+    chmod 600 "$CICD_KEY_FILE"
+    echo "💾 Private key also saved to: $CICD_KEY_FILE"
+    echo "   You can copy it from there if needed"
+    echo ""
+    
     run_remote "sudo mkdir -p /home/devops/n8n-playground/{caddy_config,postgres-init,local_files}"
     run_remote "sudo mkdir -p /home/devops/gh-runner"
     run_remote "sudo chown -R devops:devops /home/devops"
 else
+    # Not root, so no CI/CD key generated
+    CICD_KEY_FILE=""
     TARGET_USER="$SSH_USER"
     run_remote "mkdir -p ~/n8n-playground/{caddy_config,postgres-init,local_files}"
     run_remote "mkdir -p ~/gh-runner"
@@ -434,9 +501,18 @@ fi
 echo "📝 Next steps:"
 echo "1. Connect as devops user: ssh -i $SSH_KEY devops@$SERVER_HOST"
 echo "2. Logout and login again (for Docker group to take effect)"
-echo "3. Run GitHub setup script: ./scripts/setup-github.sh"
-echo "4. Deploy runner via GitHub Actions"
-echo "5. Deploy application via GitHub Actions"
+if [ "$SSH_USER" = "root" ] && [ -n "${CICD_KEY_FILE:-}" ]; then
+    echo "3. Add CI/CD SSH key to GitHub Secrets (see above output)"
+    echo "   Key file location: $CICD_KEY_FILE"
+    echo "4. Run GitHub setup script: ./scripts/setup-github.sh"
+    echo "   (When prompted for SSH key, use the CI/CD key from: $CICD_KEY_FILE)"
+    echo "5. Deploy runner via GitHub Actions"
+    echo "6. Deploy application via GitHub Actions"
+else
+    echo "3. Run GitHub setup script: ./scripts/setup-github.sh"
+    echo "4. Deploy runner via GitHub Actions"
+    echo "5. Deploy application via GitHub Actions"
+fi
 
 # Cleanup SSH connection
 cleanup_ssh_connection
