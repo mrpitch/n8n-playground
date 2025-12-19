@@ -1,0 +1,38 @@
+{
+  "name": "n8n-playground",
+  "version": "0.1.0",
+  "description": "N8N Playground",
+  "author": "mrpitch@outlook.com",
+  "license": "MIT",
+  "packageManager": "pnpm@9.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/n8n-playground/n8n-playground.git"
+  },
+  "homepage": "https://github.com/n8n-playground/n8n-playground",
+  "bugs": {
+    "url": "https://github.com/n8n-playground/n8n-playground/issues"
+  },
+  "keywords": [
+    "n8n",
+    "playground",
+    "workflow",
+    "automation"
+  ],
+  "private": true,
+  "scripts": {
+    "start": "docker compose -f docker/docker-compose.yml --env-file .env up -d",
+    "stop": "docker compose -f docker/docker-compose.yml --env-file .env down",
+    "restart": "docker compose -f docker/docker-compose.yml --env-file .env down && docker compose -f docker/docker-compose.yml --env-file .env up -d",
+    "logs": "docker compose -f docker/docker-compose.yml --env-file .env logs -f",
+    "logs:n8n": "docker compose -f docker/docker-compose.yml --env-file .env logs -f n8n",
+    "logs:postgres": "docker compose -f docker/docker-compose.yml --env-file .env logs -f postgres",
+    "logs:caddy": "docker compose -f docker/docker-compose.yml --env-file .env logs -f caddy",
+      "status": "docker compose -f docker/docker-compose.yml --env-file .env ps",
+    "cleanup": "docker compose -f docker/docker-compose.yml --env-file .env down -v",
+    "shell:n8n": "docker compose -f docker/docker-compose.yml --env-file .env exec n8n sh",
+    "shell:postgres": "docker compose -f docker/docker-compose.yml --env-file .env exec postgres psql -U postgres"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
