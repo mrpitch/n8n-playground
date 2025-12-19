@@ -36,10 +36,11 @@ jobs:
 
       - name: Add host key (SSH known_hosts)
         run: |
-          install -m 700 -d ~/.ssh
-          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh || true
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Ensure Docker & Compose on VM
+      - name: Verify Docker is installed
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SSH_HOST }}
@@ -47,21 +48,16 @@ jobs:
           key: ${{ env.SSH_KEY }}
           script: |
             set -euo pipefail
+            # Docker should already be installed by setup-server.sh
+            # Just verify it's available and running
             if ! command -v docker >/dev/null 2>&1; then
-              # Install Docker using official repo
-              sudo apt-get update -y
-              sudo apt-get install -y ca-certificates curl gnupg
-              sudo install -m 0755 -d /etc/apt/keyrings
-              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-              echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-                $(. /etc/os-release && echo $UBUNTU_CODENAME) stable" \
-                | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-              sudo apt-get update -y
-              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-              sudo usermod -aG docker $USER || true
+              echo "❌ ERROR: Docker is not installed!"
+              echo "Please run scripts/setup-server.sh first to install Docker."
+              exit 1
             fi
+            # Ensure Docker service is running
             docker info >/dev/null 2>&1 || sudo systemctl start docker
+            echo "✅ Docker is installed and running"
 
       - name: Install runner dependencies
         uses: appleboy/ssh-action@v1.0.3
