@@ -83,6 +83,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Get devops user UID/GID from host system
+          DEVOPS_UID=$(id -u devops 2>/dev/null || echo "1000")
+          DEVOPS_GID=$(id -g devops 2>/dev/null || echo "1000")
+          
+          # If id command doesn't work (user doesn't exist in container), 
+          # get it from host's /etc/passwd via Docker
+          if [ "$DEVOPS_UID" = "1000" ] && [ "$DEVOPS_GID" = "1000" ]; then
+            # Try to get UID/GID from host's passwd file
+            DEVOPS_UID=$(docker run --rm -v /etc/passwd:/etc/passwd:ro alpine sh -c "getent passwd devops | cut -d: -f3" 2>/dev/null || echo "1000")
+            DEVOPS_GID=$(docker run --rm -v /etc/passwd:/etc/passwd:ro alpine sh -c "getent passwd devops | cut -d: -f4" 2>/dev/null || echo "1000")
+          fi
+
+          echo "Using UID: $DEVOPS_UID, GID: $DEVOPS_GID for devops user"
+
           # Project path
           mkdir -p "${REMOTE_PROJECT_PATH}"
           cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
