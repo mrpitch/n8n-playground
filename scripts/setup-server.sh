@@ -177,6 +177,28 @@ else
     cleanup_ssh_connection
     exit 1
 fi
+
+# Check if passwordless sudo is configured (when not connecting as root)
+if [ "$SSH_USER" != "root" ]; then
+    echo "🔍 Checking sudo configuration..."
+    if ssh $SSH_OPTS -n "$SSH_USER@$SERVER_HOST" 'sudo -n true' < /dev/null 2>/dev/null; then
+        echo "✅ Passwordless sudo is configured"
+    else
+        echo "⚠️  WARNING: Passwordless sudo is not configured for $SSH_USER"
+        echo "   The script requires passwordless sudo to run commands."
+        echo "   Please run this script as root first to configure the server,"
+        echo "   or configure passwordless sudo manually:"
+        echo "   echo '$SSH_USER ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/$SSH_USER"
+        echo ""
+        read -p "Continue anyway? (y/n): " CONTINUE_SUDO
+        CONTINUE_SUDO=$(echo "$CONTINUE_SUDO" | tr '[:upper:]' '[:lower:]' | cut -c1)
+        if [ "$CONTINUE_SUDO" != "y" ]; then
+            echo "Aborted. Please configure passwordless sudo first."
+            cleanup_ssh_connection
+            exit 1
+        fi
+    fi
+fi
 echo ""
 
 echo "📦 Installing required packages..."
@@ -208,6 +230,12 @@ if [ "$SSH_USER" = "root" ]; then
     # Create devops user first if connecting as root
     run_remote "id -u devops &>/dev/null || sudo adduser --disabled-password --gecos '' devops"
     run_remote "sudo usermod -aG sudo devops"
+    
+    # Configure passwordless sudo for devops user (required for automation)
+    echo "🔐 Configuring passwordless sudo for devops user..."
+    run_remote "echo 'devops ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/devops > /dev/null"
+    run_remote "sudo chmod 0440 /etc/sudoers.d/devops"
+    echo "✅ Passwordless sudo configured for devops user"
     
     # Copy SSH key to devops user
     echo "🔑 Setting up SSH key for devops user..."
