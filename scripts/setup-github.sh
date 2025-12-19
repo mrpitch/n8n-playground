@@ -63,6 +63,25 @@ echo "Please provide the following information:"
 echo ""
 
 read -p "Server IP/Hostname: " SERVER_HOST
+read -p "SSH Username (default: devops): " SSH_USER
+SSH_USER=${SSH_USER:-devops}
+
+read -p "SSH Private Key Path (default: ~/.ssh/id_rsa): " SSH_KEY_PATH
+SSH_KEY_PATH=${SSH_KEY_PATH:-~/.ssh/id_rsa}
+SSH_KEY_PATH="${SSH_KEY_PATH/#\~/$HOME}"
+
+if [ ! -f "$SSH_KEY_PATH" ]; then
+    echo "⚠️  SSH key not found: $SSH_KEY_PATH"
+    read -p "Continue anyway? (y/n): " CONTINUE
+    if [ "$CONTINUE" != "y" ]; then
+        echo "Aborted."
+        exit 1
+    fi
+    SSH_KEY_CONTENT=""
+else
+    SSH_KEY_CONTENT=$(cat "$SSH_KEY_PATH")
+fi
+
 read -p "Domain name (e.g., mrpitch.rocks): " DOMAIN_NAME
 read -p "Subdomain for n8n (default: n8n): " SUBDOMAIN
 SUBDOMAIN=${SUBDOMAIN:-n8n}
@@ -125,7 +144,23 @@ echo ""
 echo "🔒 Setting GitHub Secrets..."
 echo ""
 
-# Set Secrets
+# Set SSH Secrets (required for workflows)
+echo "Setting SSH secrets..."
+if [ -n "$SSH_KEY_CONTENT" ]; then
+    echo "$SSH_KEY_CONTENT" | gh secret set "SSH_KEY" --repo "$REPO"
+    echo "✅ Set secret: SSH_KEY"
+else
+    echo "⚠️  SSH_KEY not set (key file not found or skipped)"
+    echo "   You'll need to set SSH_KEY secret manually in GitHub"
+fi
+
+echo "$SERVER_HOST" | gh secret set "SSH_HOST" --repo "$REPO"
+echo "✅ Set secret: SSH_HOST"
+
+echo "$SSH_USER" | gh secret set "SSH_USER" --repo "$REPO"
+echo "✅ Set secret: SSH_USER"
+
+# Set Application Secrets
 set_secret "POSTGRES_PASSWORD" "PostgreSQL superuser password" "$POSTGRES_PASSWORD"
 set_secret "POSTGRES_N8N_PASSWORD" "n8n database user password" "$POSTGRES_N8N_PASSWORD"
 set_secret "N8N_ENCRYPTION_KEY" "n8n encryption key" "$N8N_ENCRYPTION_KEY"
@@ -138,6 +173,8 @@ echo ""
 echo "📋 Summary:"
 echo "==========="
 echo "Repository: $REPO"
+echo "SSH Host: $SERVER_HOST"
+echo "SSH User: $SSH_USER"
 echo "Domain: $SUBDOMAIN.$DOMAIN_NAME"
 echo "Server Path: $REMOTE_PROJECT_PATH"
 echo ""
