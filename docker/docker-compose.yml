@@ -24,3 +24,7 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - ${DATA_FOLDER}/local_files:/files
+
+volumes:
+  caddy_data:
+  n8n_data:
