@@ -310,17 +310,32 @@ jobs:
           # docker compose down might leave it as a directory, so we need to fix it
           echo ""
           echo "🔧 Final fix: Removing and recreating Caddyfile right before Docker mount..."
-          if [ -e "${CADDYFILE_PATH}" ]; then
-            echo "Removing existing Caddyfile (file or directory)..."
-            rm -rf "${CADDYFILE_PATH}"
-          fi
           
-          # Get the content from the backup location
-          if [ -f "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
+          # Get the content BEFORE removing the file (try multiple locations)
+          CADDYFILE_CONTENT=""
+          if [ -f "${CADDYFILE_PATH}" ]; then
+            echo "Reading content from current location: ${CADDYFILE_PATH}"
+            CADDYFILE_CONTENT=$(cat "${CADDYFILE_PATH}")
+          elif [ -f "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
+            echo "Reading content from backup location: ${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile"
             CADDYFILE_CONTENT=$(cat "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile")
           else
             echo "❌ ERROR: Cannot find Caddyfile content to recreate!"
+            echo "Checked locations:"
+            echo "  - ${CADDYFILE_PATH}"
+            echo "  - ${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile"
             exit 1
+          fi
+          
+          if [ -z "${CADDYFILE_CONTENT}" ]; then
+            echo "❌ ERROR: Caddyfile content is empty!"
+            exit 1
+          fi
+          
+          # Now remove the existing file/directory
+          if [ -e "${CADDYFILE_PATH}" ]; then
+            echo "Removing existing Caddyfile (file or directory)..."
+            rm -rf "${CADDYFILE_PATH}"
           fi
           
           # Create file atomically
