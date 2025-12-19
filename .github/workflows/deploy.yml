@@ -2,23 +2,15 @@ name: Deploy - Production
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy_only:
-        description: "Deploy without building (use latest images)"
-        required: false
-        default: "false"
 
 permissions:
   contents: read
   packages: read
 
-env:
-  REGISTRY: ghcr.io
-
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted]
+
     env:
       DATA_FOLDER: ${{ vars.DATA_FOLDER }}
       DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
@@ -26,275 +18,153 @@ jobs:
       GENERIC_TIMEZONE: ${{ vars.GENERIC_TIMEZONE }}
       SSL_EMAIL: ${{ vars.SSL_EMAIL }}
       REMOTE_PROJECT_PATH: ${{ vars.REMOTE_PROJECT_PATH }}
+      POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+      POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+      POSTGRES_N8N_DB: ${{ vars.POSTGRES_N8N_DB }}
+      POSTGRES_N8N_USER: ${{ vars.POSTGRES_N8N_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_N8N_PASSWORD: ${{ secrets.POSTGRES_N8N_PASSWORD }}
+      N8N_ENCRYPTION_KEY: ${{ secrets.N8N_ENCRYPTION_KEY }}
+
     steps:
-      - name: Checkout
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Determine image tags
-        id: images
-        run: |
-          set -euo pipefail
-          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
-          echo "next_image=${REGISTRY}/${REPO}-next:latest" >> "$GITHUB_OUTPUT"
-          echo "nginx_image=${REGISTRY}/${REPO}-nginx:latest" >> "$GITHUB_OUTPUT"
-
+      # ------------------------------------------------------------
+      # Prepare deployment bundle
+      # ------------------------------------------------------------
       - name: Prepare deployment bundle
         run: |
           set -euo pipefail
-          
-          echo "Current directory: $(pwd)"
-          echo "Checking docker directory:"
-          ls -la docker/ || echo "docker/ directory not found!"
-          
+
           mkdir -p deploy_bundle
-          
-          # Verify files exist before copying
-          if [ ! -f "docker/docker-compose.yml" ]; then
-            echo "ERROR: docker/docker-compose.yml not found!"
-            exit 1
-          fi
-          
+
+          # docker-compose.yml
           cp docker/docker-compose.yml deploy_bundle/
-          
-          # Copy caddy_config directory and process Caddyfile
-          echo ""
-          echo "🔍 Checking for Caddyfile source..."
-          echo "Looking for: docker/caddy_config/Caddyfile"
-          echo "Current directory: $(pwd)"
-          echo "Full path would be: $(pwd)/docker/caddy_config/Caddyfile"
-          
-          if [ -d "docker/caddy_config" ]; then
-            echo "✅ Found docker/caddy_config directory"
-            ls -la docker/caddy_config/
-            mkdir -p deploy_bundle/caddy_config
-            
-            CADDYFILE_SOURCE="docker/caddy_config/Caddyfile"
-            if [ -f "${CADDYFILE_SOURCE}" ]; then
-              echo "✅ Found Caddyfile at: ${CADDYFILE_SOURCE}"
-              echo "Source file details:"
-              ls -la "${CADDYFILE_SOURCE}"
-              echo "Source file contents (before processing):"
-              cat "${CADDYFILE_SOURCE}"
-              
-              # Process Caddyfile: replace placeholder with actual domain
-              sed "s/n8n\.<domain>\.<suffix>/${SUBDOMAIN}.${DOMAIN_NAME}/g" \
-                "${CADDYFILE_SOURCE}" > deploy_bundle/caddy_config/Caddyfile
-              echo ""
-              echo "✅ Processed Caddyfile with domain: ${SUBDOMAIN}.${DOMAIN_NAME}"
-            else
-              echo "❌ ERROR: Caddyfile not found at ${CADDYFILE_SOURCE}!"
-              echo "Contents of docker/caddy_config/:"
-              ls -la docker/caddy_config/ || echo "Directory is empty or doesn't exist"
-              exit 1
-            fi
-          else
-            echo "❌ ERROR: docker/caddy_config directory not found!"
-            echo "Contents of docker/:"
-            ls -la docker/ || echo "docker/ directory doesn't exist"
-            exit 1
-          fi
-          
-          # Generate .env from secrets
-          cat > deploy_bundle/.env << EOF
-          
+
+          # Caddy config
+          mkdir -p deploy_bundle/caddy_config
+          sed "s/n8n\.<domain>\.<suffix>/${SUBDOMAIN}.${DOMAIN_NAME}/g" \
+            docker/caddy_config/Caddyfile \
+            > deploy_bundle/caddy_config/Caddyfile
+
+          # PostgreSQL init scripts
+          mkdir -p deploy_bundle/postgres-init
+          cp docker/postgres-init/* deploy_bundle/postgres-init/
+
+          # .env file for docker compose
+          cat > deploy_bundle/.env <<EOF
           DATA_FOLDER=${DATA_FOLDER}
           DOMAIN_NAME=${DOMAIN_NAME}
           SUBDOMAIN=${SUBDOMAIN}
           GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
           SSL_EMAIL=${SSL_EMAIL}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          POSTGRES_N8N_DB=${POSTGRES_N8N_DB}
+          POSTGRES_N8N_USER=${POSTGRES_N8N_USER}
+          POSTGRES_N8N_PASSWORD=${POSTGRES_N8N_PASSWORD}
+          N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
           EOF
-          
-          # Verify bundle was created
-          echo "Deploy bundle contents:"
-          ls -la deploy_bundle/
-          if [ -d "deploy_bundle/caddy_config" ]; then
-            echo "Caddyfile contents:"
-            cat deploy_bundle/caddy_config/Caddyfile
-          fi
-          echo "Deploy bundle size:"
-          du -sh deploy_bundle/
 
-      - name: Copy deployment files to server
+          echo "📦 Deployment bundle prepared:"
+          ls -la deploy_bundle
+          echo "Caddyfile:"
+          cat deploy_bundle/caddy_config/Caddyfile
+
+      # ------------------------------------------------------------
+      # Copy files to server filesystem
+      # ------------------------------------------------------------
+      - name: Copy deployment files
         run: |
           set -euo pipefail
-          # Create directory structure
+
+          # Get devops user UID/GID from host system
+          DEVOPS_UID=$(id -u devops 2>/dev/null || echo "1000")
+          DEVOPS_GID=$(id -g devops 2>/dev/null || echo "1000")
+          
+          # If id command doesn't work (user doesn't exist in container), 
+          # get it from host's /etc/passwd via Docker
+          if [ "$DEVOPS_UID" = "1000" ] && [ "$DEVOPS_GID" = "1000" ]; then
+            # Try to get UID/GID from host's passwd file
+            DEVOPS_UID=$(docker run --rm -v /etc/passwd:/etc/passwd:ro alpine sh -c "getent passwd devops | cut -d: -f3" 2>/dev/null || echo "1000")
+            DEVOPS_GID=$(docker run --rm -v /etc/passwd:/etc/passwd:ro alpine sh -c "getent passwd devops | cut -d: -f4" 2>/dev/null || echo "1000")
+          fi
+
+          echo "Using UID: $DEVOPS_UID, GID: $DEVOPS_GID for devops user"
+
+          # Project path
           mkdir -p "${REMOTE_PROJECT_PATH}"
+          
+          # Remove any existing Caddyfile (file or directory) from previous failed attempts
+          if [ -e "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
+            echo "⚠️  Removing existing Caddyfile (file or directory)..."
+            rm -rf "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile"
+          fi
+          
+          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
+
+          # Change ownership to devops user using numeric IDs
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${REMOTE_PROJECT_PATH}"
+
+          # Runtime data paths (mounted into containers)
           mkdir -p "${DATA_FOLDER}/caddy_config"
           mkdir -p "${DATA_FOLDER}/local_files"
-          
-          # CRITICAL: Remove any existing Caddyfile (file or directory) at the exact path Docker expects
-          CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
-          if [ -e "${CADDYFILE_PATH}" ]; then
-            echo "⚠️  Removing existing Caddyfile (file or directory) at ${CADDYFILE_PATH}"
-            rm -rf "${CADDYFILE_PATH}"
-          fi
-          
-          # Copy all files including hidden ones (like .env) to REMOTE_PROJECT_PATH
-          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
-          
-          # CRITICAL: Explicitly copy Caddyfile to the exact path Docker Compose expects
-          # Docker Compose mounts from ${DATA_FOLDER}/caddy_config/Caddyfile
-          if [ -f "deploy_bundle/caddy_config/Caddyfile" ]; then
-            cp deploy_bundle/caddy_config/Caddyfile "${CADDYFILE_PATH}"
-            chmod 644 "${CADDYFILE_PATH}"
-            echo "✅ Caddyfile copied to exact Docker mount path: ${CADDYFILE_PATH}"
-          else
-            echo "❌ ERROR: Caddyfile not found in deploy_bundle!"
-            exit 1
-          fi
-          
-          echo "Files copied to ${REMOTE_PROJECT_PATH}"
-          ls -la "${REMOTE_PROJECT_PATH}"
-          echo ""
-          echo "Verifying Caddyfile at Docker mount path:"
-          ls -la "${CADDYFILE_PATH}" || echo "ERROR: Caddyfile not at expected path!"
-          echo ""
-          echo "Caddyfile contents:"
-          cat "${CADDYFILE_PATH}"
+          mkdir -p "${DATA_FOLDER}/postgres-init"
 
+          # Remove any existing Caddyfile (file or directory) from previous failed attempts
+          if [ -e "${DATA_FOLDER}/caddy_config/Caddyfile" ]; then
+            echo "⚠️  Removing existing Caddyfile (file or directory) in DATA_FOLDER..."
+            rm -rf "${DATA_FOLDER}/caddy_config/Caddyfile"
+          fi
+
+          # Copy Caddyfile to DATA_FOLDER (directory mount)
+          cp deploy_bundle/caddy_config/Caddyfile \
+             "${DATA_FOLDER}/caddy_config/Caddyfile"
+          chmod 644 "${DATA_FOLDER}/caddy_config/Caddyfile"
+          chown "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/caddy_config/Caddyfile"
+
+          # Copy PostgreSQL init scripts
+          cp -r deploy_bundle/postgres-init/* "${DATA_FOLDER}/postgres-init/"
+          chmod +x "${DATA_FOLDER}/postgres-init/"*.sh 2>/dev/null || true
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/postgres-init"
+
+          # Ensure DATA_FOLDER directories are owned by devops
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/caddy_config"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/local_files"
+          chown -R "${DEVOPS_UID}:${DEVOPS_GID}" "${DATA_FOLDER}/postgres-init"
+
+          echo "📁 Runtime paths:"
+          ls -la "${DATA_FOLDER}/caddy_config"
+          echo "Caddyfile:"
+          cat "${DATA_FOLDER}/caddy_config/Caddyfile"
+
+      # ------------------------------------------------------------
+      # Deploy with Docker Compose
+      # ------------------------------------------------------------
       - name: Deploy application
         run: |
           set -euo pipefail
           cd "${REMOTE_PROJECT_PATH}"
-          
-          # Fix docker-compose.yml to use .env instead of ../.env
-          # (since docker-compose.yml and .env are now in the same directory)
-          sed -i 's|\.\./\.env|.env|g' docker-compose.yml
-          
-          # Verify .env file exists
-          if [ ! -f ".env" ]; then
-            echo "ERROR: .env file not found in ${REMOTE_PROJECT_PATH}"
-            ls -la
-            exit 1
-          fi
-          
-          # CRITICAL: Final verification of Caddyfile before Docker mount
-          CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
-          echo "🔍 Final verification before Docker mount..."
-          echo "Checking: ${CADDYFILE_PATH}"
-          
-          # Check if it exists
-          if [ ! -e "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Caddyfile does not exist at ${CADDYFILE_PATH}"
-            echo "Directory structure:"
-            ls -la "${DATA_FOLDER}/" || echo "DATA_FOLDER does not exist"
-            ls -la "${DATA_FOLDER}/caddy_config/" || echo "caddy_config directory does not exist"
-            exit 1
-          fi
-          
-          # Check if it's a directory (this would cause the mount error)
-          if [ -d "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: ${CADDYFILE_PATH} is a directory, not a file!"
-            echo "Removing directory and recreating as file..."
-            rm -rf "${CADDYFILE_PATH}"
-            # Try to copy from REMOTE_PROJECT_PATH if it exists there
-            if [ -f "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
-              cp "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" "${CADDYFILE_PATH}"
-              chmod 644 "${CADDYFILE_PATH}"
-              echo "✅ Recreated Caddyfile from backup location"
-            else
-              echo "❌ ERROR: Cannot recreate Caddyfile - source not found!"
-              exit 1
-            fi
-          fi
-          
-          # Verify it's a regular file
-          if [ ! -f "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: ${CADDYFILE_PATH} exists but is not a regular file!"
-            ls -la "${CADDYFILE_PATH}"
-            exit 1
-          fi
-          
-          echo "✅ Caddyfile verified: regular file at ${CADDYFILE_PATH}"
-          echo "File details:"
-          ls -la "${CADDYFILE_PATH}"
-          echo ""
-          echo "Caddyfile contents:"
-          cat "${CADDYFILE_PATH}"
-          
-          # CRITICAL: Recreate file fresh right before Docker mount to ensure it's definitely a file
-          # This handles any edge cases where Docker might see something different
-          echo ""
-          echo "🔧 Recreating Caddyfile fresh right before Docker mount..."
-          CADDYFILE_CONTENT=$(cat "${CADDYFILE_PATH}")
-          # Remove file completely (including if it's a directory)
-          rm -rf "${CADDYFILE_PATH}"
-          # Ensure parent directory exists
-          mkdir -p "$(dirname "${CADDYFILE_PATH}")"
-          # Create file atomically using a temp file then move
-          TEMP_FILE="${CADDYFILE_PATH}.tmp"
-          printf '%s' "${CADDYFILE_CONTENT}" > "${TEMP_FILE}"
-          chmod 644 "${TEMP_FILE}"
-          mv "${TEMP_FILE}" "${CADDYFILE_PATH}"
-          # Verify the move worked
-          if [ ! -f "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Failed to create Caddyfile!"
-            exit 1
-          fi
-          
-          # Final verification after recreation
-          if [ ! -f "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Failed to recreate Caddyfile!"
-            exit 1
-          fi
-          if [ -d "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Caddyfile is still a directory after recreation!"
-            exit 1
-          fi
-          echo "✅ Caddyfile recreated and verified as regular file"
-          ls -la "${CADDYFILE_PATH}"
-          
-          export DOMAIN="${DOMAIN:-}"
-          export SSL_EMAIL="${SSL_EMAIL:-}"
-          export DOMAINS="${DOMAINS:-}"
-          
-          echo "🔄 Pulling latest images..."
+
+        
+
+          echo "Current directory: $(pwd)"
+          echo "Contents:"
+          ls -la
+
+          echo "🔄 Pulling images..."
           docker compose pull
-          
-          echo "🧹 Removing old containers..."
+
+          echo "🧹 Stopping old containers..."
           docker compose down --remove-orphans
-          
-          # One more check right before starting containers
-          echo ""
-          echo "🔍 Final check right before Docker mount..."
-          if [ ! -f "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Caddyfile disappeared before Docker mount!"
-            exit 1
-          fi
-          if [ -d "${CADDYFILE_PATH}" ]; then
-            echo "❌ ERROR: Caddyfile became a directory before Docker mount!"
-            exit 1
-          fi
-          
-          # Check for symlinks or other path issues
-          echo "Checking path details:"
-          ls -la "${CADDYFILE_PATH}"
-          readlink -f "${CADDYFILE_PATH}" 2>/dev/null || echo "Not a symlink (or readlink not available)"
-          stat "${CADDYFILE_PATH}" 2>/dev/null || echo "Stat not available"
-          
-          # Verify parent directory
-          echo ""
-          echo "Checking parent directory:"
-          ls -la "${DATA_FOLDER}/caddy_config/"
-          
-          echo "✅ Caddyfile confirmed as regular file at mount time"
-          
-          # Verify Docker Compose can resolve the path
-          echo ""
-          echo "🔍 Verifying Docker Compose configuration..."
-          echo "DATA_FOLDER value: ${DATA_FOLDER}"
-          echo "Expected Caddyfile path: ${DATA_FOLDER}/caddy_config/Caddyfile"
-          echo "Actual resolved path: $(readlink -f "${CADDYFILE_PATH}" 2>/dev/null || echo "${CADDYFILE_PATH}")"
-          docker compose config 2>&1 | grep -A 10 -B 5 "Caddyfile\|caddy_config" || echo "Caddyfile config not found in output"
-          
-          # Test if we can access the file the same way Docker will
-          echo ""
-          echo "🔍 Testing file access..."
-          test -f "${CADDYFILE_PATH}" && echo "✅ File accessible via test -f" || echo "❌ File not accessible"
-          cat "${CADDYFILE_PATH}" > /dev/null && echo "✅ File readable" || echo "❌ File not readable"
-          
-          echo "🚀 Starting updated containers..."
+
+          echo "🚀 Starting containers..."
           docker compose up -d
-          
-          echo "✅ Deployment completed successfully"
+
+          echo "✅ Deployment successful"
           docker ps --format "table {{.Names}}\t{{.Status}}"
