@@ -99,21 +99,36 @@ jobs:
           mkdir -p "${DATA_FOLDER}/caddy_config"
           mkdir -p "${DATA_FOLDER}/local_files"
           
-          # Remove any existing Caddyfile if it's a directory (prevents mount errors)
+          # CRITICAL: Remove any existing Caddyfile (file or directory) at the exact path Docker expects
           CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
-          if [ -d "${CADDYFILE_PATH}" ]; then
-            echo "⚠️  Removing existing Caddyfile directory (should be a file)"
+          if [ -e "${CADDYFILE_PATH}" ]; then
+            echo "⚠️  Removing existing Caddyfile (file or directory) at ${CADDYFILE_PATH}"
             rm -rf "${CADDYFILE_PATH}"
           fi
           
-          # Copy all files including hidden ones (like .env)
+          # Copy all files including hidden ones (like .env) to REMOTE_PROJECT_PATH
           cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
+          
+          # CRITICAL: Explicitly copy Caddyfile to the exact path Docker Compose expects
+          # Docker Compose mounts from ${DATA_FOLDER}/caddy_config/Caddyfile
+          if [ -f "deploy_bundle/caddy_config/Caddyfile" ]; then
+            cp deploy_bundle/caddy_config/Caddyfile "${CADDYFILE_PATH}"
+            chmod 644 "${CADDYFILE_PATH}"
+            echo "✅ Caddyfile copied to exact Docker mount path: ${CADDYFILE_PATH}"
+          else
+            echo "❌ ERROR: Caddyfile not found in deploy_bundle!"
+            exit 1
+          fi
+          
           echo "Files copied to ${REMOTE_PROJECT_PATH}"
           ls -la "${REMOTE_PROJECT_PATH}"
-          if [ -d "${REMOTE_PROJECT_PATH}/caddy_config" ]; then
-            echo "Caddyfile on server:"
-            cat "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" || echo "Caddyfile not found"
-          fi
+          echo ""
+          echo "Verifying Caddyfile at Docker mount path:"
+          ls -la "${CADDYFILE_PATH}" || echo "ERROR: Caddyfile not at expected path!"
+          file "${CADDYFILE_PATH}" || echo "ERROR: Cannot determine file type!"
+          echo ""
+          echo "Caddyfile contents:"
+          cat "${CADDYFILE_PATH}"
 
       - name: Deploy application
         run: |
@@ -131,19 +146,48 @@ jobs:
             exit 1
           fi
           
-          # Verify Caddyfile exists and is a file (not a directory)
+          # CRITICAL: Final verification of Caddyfile before Docker mount
           CADDYFILE_PATH="${DATA_FOLDER}/caddy_config/Caddyfile"
-          if [ ! -f "${CADDYFILE_PATH}" ]; then
-            echo "ERROR: Caddyfile not found at ${CADDYFILE_PATH}"
-            echo "Checking directory structure:"
+          echo "🔍 Final verification before Docker mount..."
+          echo "Checking: ${CADDYFILE_PATH}"
+          
+          # Check if it exists
+          if [ ! -e "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile does not exist at ${CADDYFILE_PATH}"
+            echo "Directory structure:"
             ls -la "${DATA_FOLDER}/" || echo "DATA_FOLDER does not exist"
             ls -la "${DATA_FOLDER}/caddy_config/" || echo "caddy_config directory does not exist"
-            if [ -d "${CADDYFILE_PATH}" ]; then
-              echo "ERROR: ${CADDYFILE_PATH} exists but is a directory, not a file!"
-            fi
             exit 1
           fi
-          echo "✅ Caddyfile verified at ${CADDYFILE_PATH}"
+          
+          # Check if it's a directory (this would cause the mount error)
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: ${CADDYFILE_PATH} is a directory, not a file!"
+            echo "Removing directory and recreating as file..."
+            rm -rf "${CADDYFILE_PATH}"
+            # Try to copy from REMOTE_PROJECT_PATH if it exists there
+            if [ -f "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
+              cp "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" "${CADDYFILE_PATH}"
+              chmod 644 "${CADDYFILE_PATH}"
+              echo "✅ Recreated Caddyfile from backup location"
+            else
+              echo "❌ ERROR: Cannot recreate Caddyfile - source not found!"
+              exit 1
+            fi
+          fi
+          
+          # Verify it's a regular file
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: ${CADDYFILE_PATH} exists but is not a regular file!"
+            file "${CADDYFILE_PATH}"
+            exit 1
+          fi
+          
+          echo "✅ Caddyfile verified: regular file at ${CADDYFILE_PATH}"
+          echo "File details:"
+          ls -la "${CADDYFILE_PATH}"
+          file "${CADDYFILE_PATH}"
+          echo ""
           echo "Caddyfile contents:"
           cat "${CADDYFILE_PATH}"
           
