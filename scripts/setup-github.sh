@@ -66,12 +66,17 @@ read -p "Server IP/Hostname: " SERVER_HOST
 read -p "SSH Username (default: devops): " SSH_USER
 SSH_USER=${SSH_USER:-devops}
 
-read -p "SSH Private Key Path (default: ~/.ssh/id_rsa): " SSH_KEY_PATH
+echo "💡 CI/CD SSH Key:"
+echo "   The setup-server.sh script should have generated a CI/CD key"
+echo "   Look for a file like: ~/.ssh/{SERVER_HOST}_cicd_key"
+echo ""
+read -p "SSH Private Key Path (CI/CD key or default: ~/.ssh/id_rsa): " SSH_KEY_PATH
 SSH_KEY_PATH=${SSH_KEY_PATH:-~/.ssh/id_rsa}
 SSH_KEY_PATH="${SSH_KEY_PATH/#\~/$HOME}"
 
 if [ ! -f "$SSH_KEY_PATH" ]; then
     echo "⚠️  SSH key not found: $SSH_KEY_PATH"
+    echo "   If you ran setup-server.sh, look for the CI/CD key file it created"
     read -p "Continue anyway? (y/n): " CONTINUE
     if [ "$CONTINUE" != "y" ]; then
         echo "Aborted."
@@ -118,6 +123,7 @@ read -p "GitHub Personal Access Token (PAT) for runner registration: " RUNNER_RE
 if [ -z "$RUNNER_REG_PAT" ]; then
     echo "⚠️  PAT not provided. You'll need to set RUNNER_REG_PAT manually."
 fi
+echo ""
 
 echo ""
 echo "📝 Setting GitHub Variables..."
