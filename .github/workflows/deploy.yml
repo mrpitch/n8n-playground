@@ -57,18 +57,41 @@ jobs:
           cp docker/docker-compose.yml deploy_bundle/
           
           # Copy caddy_config directory and process Caddyfile
+          echo ""
+          echo "🔍 Checking for Caddyfile source..."
+          echo "Looking for: docker/caddy_config/Caddyfile"
+          echo "Current directory: $(pwd)"
+          echo "Full path would be: $(pwd)/docker/caddy_config/Caddyfile"
+          
           if [ -d "docker/caddy_config" ]; then
+            echo "✅ Found docker/caddy_config directory"
+            ls -la docker/caddy_config/
             mkdir -p deploy_bundle/caddy_config
-            if [ -f "docker/caddy_config/Caddyfile" ]; then
+            
+            CADDYFILE_SOURCE="docker/caddy_config/Caddyfile"
+            if [ -f "${CADDYFILE_SOURCE}" ]; then
+              echo "✅ Found Caddyfile at: ${CADDYFILE_SOURCE}"
+              echo "Source file details:"
+              ls -la "${CADDYFILE_SOURCE}"
+              echo "Source file contents (before processing):"
+              cat "${CADDYFILE_SOURCE}"
+              
               # Process Caddyfile: replace placeholder with actual domain
               sed "s/n8n\.<domain>\.<suffix>/${SUBDOMAIN}.${DOMAIN_NAME}/g" \
-                docker/caddy_config/Caddyfile > deploy_bundle/caddy_config/Caddyfile
+                "${CADDYFILE_SOURCE}" > deploy_bundle/caddy_config/Caddyfile
+              echo ""
               echo "✅ Processed Caddyfile with domain: ${SUBDOMAIN}.${DOMAIN_NAME}"
             else
-              echo "⚠️  WARNING: docker/caddy_config/Caddyfile not found!"
+              echo "❌ ERROR: Caddyfile not found at ${CADDYFILE_SOURCE}!"
+              echo "Contents of docker/caddy_config/:"
+              ls -la docker/caddy_config/ || echo "Directory is empty or doesn't exist"
+              exit 1
             fi
           else
-            echo "⚠️  WARNING: docker/caddy_config directory not found!"
+            echo "❌ ERROR: docker/caddy_config directory not found!"
+            echo "Contents of docker/:"
+            ls -la docker/ || echo "docker/ directory doesn't exist"
+            exit 1
           fi
           
           # Generate .env from secrets
@@ -189,6 +212,38 @@ jobs:
           echo "Caddyfile contents:"
           cat "${CADDYFILE_PATH}"
           
+          # CRITICAL: Recreate file fresh right before Docker mount to ensure it's definitely a file
+          # This handles any edge cases where Docker might see something different
+          echo ""
+          echo "🔧 Recreating Caddyfile fresh right before Docker mount..."
+          CADDYFILE_CONTENT=$(cat "${CADDYFILE_PATH}")
+          # Remove file completely (including if it's a directory)
+          rm -rf "${CADDYFILE_PATH}"
+          # Ensure parent directory exists
+          mkdir -p "$(dirname "${CADDYFILE_PATH}")"
+          # Create file atomically using a temp file then move
+          TEMP_FILE="${CADDYFILE_PATH}.tmp"
+          printf '%s' "${CADDYFILE_CONTENT}" > "${TEMP_FILE}"
+          chmod 644 "${TEMP_FILE}"
+          mv "${TEMP_FILE}" "${CADDYFILE_PATH}"
+          # Verify the move worked
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Failed to create Caddyfile!"
+            exit 1
+          fi
+          
+          # Final verification after recreation
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Failed to recreate Caddyfile!"
+            exit 1
+          fi
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile is still a directory after recreation!"
+            exit 1
+          fi
+          echo "✅ Caddyfile recreated and verified as regular file"
+          ls -la "${CADDYFILE_PATH}"
+          
           export DOMAIN="${DOMAIN:-}"
           export SSL_EMAIL="${SSL_EMAIL:-}"
           export DOMAINS="${DOMAINS:-}"
@@ -198,6 +253,45 @@ jobs:
           
           echo "🧹 Removing old containers..."
           docker compose down --remove-orphans
+          
+          # One more check right before starting containers
+          echo ""
+          echo "🔍 Final check right before Docker mount..."
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile disappeared before Docker mount!"
+            exit 1
+          fi
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile became a directory before Docker mount!"
+            exit 1
+          fi
+          
+          # Check for symlinks or other path issues
+          echo "Checking path details:"
+          ls -la "${CADDYFILE_PATH}"
+          readlink -f "${CADDYFILE_PATH}" 2>/dev/null || echo "Not a symlink (or readlink not available)"
+          stat "${CADDYFILE_PATH}" 2>/dev/null || echo "Stat not available"
+          
+          # Verify parent directory
+          echo ""
+          echo "Checking parent directory:"
+          ls -la "${DATA_FOLDER}/caddy_config/"
+          
+          echo "✅ Caddyfile confirmed as regular file at mount time"
+          
+          # Verify Docker Compose can resolve the path
+          echo ""
+          echo "🔍 Verifying Docker Compose configuration..."
+          echo "DATA_FOLDER value: ${DATA_FOLDER}"
+          echo "Expected Caddyfile path: ${DATA_FOLDER}/caddy_config/Caddyfile"
+          echo "Actual resolved path: $(readlink -f "${CADDYFILE_PATH}" 2>/dev/null || echo "${CADDYFILE_PATH}")"
+          docker compose config 2>&1 | grep -A 10 -B 5 "Caddyfile\|caddy_config" || echo "Caddyfile config not found in output"
+          
+          # Test if we can access the file the same way Docker will
+          echo ""
+          echo "🔍 Testing file access..."
+          test -f "${CADDYFILE_PATH}" && echo "✅ File accessible via test -f" || echo "❌ File not accessible"
+          cat "${CADDYFILE_PATH}" > /dev/null && echo "✅ File readable" || echo "❌ File not readable"
           
           echo "🚀 Starting updated containers..."
           docker compose up -d
