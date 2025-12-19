@@ -254,6 +254,19 @@ jobs:
           echo "🧹 Removing old containers..."
           docker compose down --remove-orphans
           
+          # Check if docker compose down caused Caddyfile to become a directory
+          echo ""
+          echo "🔍 Checking Caddyfile after docker compose down..."
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "⚠️  WARNING: Caddyfile became a directory after docker compose down!"
+            echo "This is the problem! Removing it now..."
+            rm -rf "${CADDYFILE_PATH}"
+          elif [ -f "${CADDYFILE_PATH}" ]; then
+            echo "✅ Caddyfile is still a file after docker compose down"
+          else
+            echo "⚠️  Caddyfile doesn't exist after docker compose down (will be recreated)"
+          fi
+          
           # One more check right before starting containers
           echo ""
           echo "🔍 Final check right before Docker mount..."
@@ -292,6 +305,46 @@ jobs:
           echo "🔍 Testing file access..."
           test -f "${CADDYFILE_PATH}" && echo "✅ File accessible via test -f" || echo "❌ File not accessible"
           cat "${CADDYFILE_PATH}" > /dev/null && echo "✅ File readable" || echo "❌ File not readable"
+          
+          # CRITICAL: Remove and recreate Caddyfile RIGHT before docker compose up
+          # docker compose down might leave it as a directory, so we need to fix it
+          echo ""
+          echo "🔧 Final fix: Removing and recreating Caddyfile right before Docker mount..."
+          if [ -e "${CADDYFILE_PATH}" ]; then
+            echo "Removing existing Caddyfile (file or directory)..."
+            rm -rf "${CADDYFILE_PATH}"
+          fi
+          
+          # Get the content from the backup location
+          if [ -f "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile" ]; then
+            CADDYFILE_CONTENT=$(cat "${REMOTE_PROJECT_PATH}/caddy_config/Caddyfile")
+          else
+            echo "❌ ERROR: Cannot find Caddyfile content to recreate!"
+            exit 1
+          fi
+          
+          # Create file atomically
+          TEMP_FILE="${CADDYFILE_PATH}.tmp"
+          printf '%s' "${CADDYFILE_CONTENT}" > "${TEMP_FILE}"
+          chmod 644 "${TEMP_FILE}"
+          mv "${TEMP_FILE}" "${CADDYFILE_PATH}"
+          
+          # Verify it's definitely a file
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Failed to create Caddyfile as file!"
+            ls -la "${CADDYFILE_PATH}" || echo "File doesn't exist"
+            exit 1
+          fi
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile is still a directory after final fix!"
+            exit 1
+          fi
+          
+          echo "✅ Caddyfile recreated as file right before Docker mount"
+          ls -la "${CADDYFILE_PATH}"
+          echo "File type check:"
+          test -f "${CADDYFILE_PATH}" && echo "✅ Confirmed: Regular file" || echo "❌ Not a regular file"
+          test -d "${CADDYFILE_PATH}" && echo "❌ ERROR: Still a directory!" || echo "✅ Confirmed: Not a directory"
           
           echo "🚀 Starting updated containers..."
           docker compose up -d
