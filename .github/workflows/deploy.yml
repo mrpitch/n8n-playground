@@ -338,10 +338,22 @@ jobs:
             rm -rf "${CADDYFILE_PATH}"
           fi
           
-          # Create file atomically
+          # Create file atomically using install command (ensures proper file creation)
           TEMP_FILE="${CADDYFILE_PATH}.tmp"
-          printf '%s' "${CADDYFILE_CONTENT}" > "${TEMP_FILE}"
-          chmod 644 "${TEMP_FILE}"
+          # Remove temp file if it exists
+          rm -f "${TEMP_FILE}"
+          # Use install to create file with content and permissions in one atomic operation
+          printf '%s' "${CADDYFILE_CONTENT}" | install -m 644 /dev/stdin "${TEMP_FILE}"
+          # Verify install created a file
+          if [ ! -f "${TEMP_FILE}" ]; then
+            echo "❌ ERROR: install failed to create file!"
+            exit 1
+          fi
+          if [ -d "${TEMP_FILE}" ]; then
+            echo "❌ ERROR: install created a directory instead of file!"
+            exit 1
+          fi
+          # Move atomically
           mv "${TEMP_FILE}" "${CADDYFILE_PATH}"
           
           # Verify it's definitely a file
@@ -360,6 +372,53 @@ jobs:
           echo "File type check:"
           test -f "${CADDYFILE_PATH}" && echo "✅ Confirmed: Regular file" || echo "❌ Not a regular file"
           test -d "${CADDYFILE_PATH}" && echo "❌ ERROR: Still a directory!" || echo "✅ Confirmed: Not a directory"
+          
+          # CRITICAL: Sync filesystem to ensure file is fully written and visible
+          echo ""
+          echo "🔄 Syncing filesystem to ensure file is fully written..."
+          sync
+          
+          # One final verification after sync
+          echo "Final verification after sync:"
+          if [ ! -f "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile disappeared after sync!"
+            exit 1
+          fi
+          if [ -d "${CADDYFILE_PATH}" ]; then
+            echo "❌ ERROR: Caddyfile became a directory after sync!"
+            exit 1
+          fi
+          ls -la "${CADDYFILE_PATH}"
+          
+          # Verify parent directory permissions
+          echo ""
+          echo "Checking parent directory permissions:"
+          ls -lad "$(dirname "${CADDYFILE_PATH}")"
+          
+          # CRITICAL: Verify the exact path Docker will use
+          echo ""
+          echo "🔍 Verifying exact path Docker will mount:"
+          echo "Path: ${CADDYFILE_PATH}"
+          echo "Absolute path: $(readlink -f "${CADDYFILE_PATH}" 2>/dev/null || realpath "${CADDYFILE_PATH}" 2>/dev/null || echo "${CADDYFILE_PATH}")"
+          
+          # Test if we can stat the file the same way Docker will
+          if stat "${CADDYFILE_PATH}" > /dev/null 2>&1; then
+            echo "✅ File is stat-able"
+            STAT_OUTPUT=$(stat -c "%F" "${CADDYFILE_PATH}" 2>/dev/null || stat -f "%HT" "${CADDYFILE_PATH}" 2>/dev/null || echo "unknown")
+            echo "File type from stat: ${STAT_OUTPUT}"
+          else
+            echo "❌ ERROR: Cannot stat file!"
+          fi
+          
+          # Ensure file is not a symlink that points to a directory
+          if [ -L "${CADDYFILE_PATH}" ]; then
+            echo "⚠️  WARNING: Caddyfile is a symlink!"
+            echo "Symlink target: $(readlink "${CADDYFILE_PATH}")"
+            if [ -d "$(readlink -f "${CADDYFILE_PATH}")" ]; then
+              echo "❌ ERROR: Symlink points to a directory!"
+              exit 1
+            fi
+          fi
           
           echo "🚀 Starting updated containers..."
           docker compose up -d
